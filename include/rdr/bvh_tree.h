@@ -124,8 +124,10 @@ void BVHTree<_>::build() {
 }
 
 template <typename _>
-typename BVHTree<_>::IndexType BVHTree<_>::build(
-    int depth, const IndexType &span_left, const IndexType &span_right) {
+typename BVHTree<_>::IndexType BVHTree<_>::build(int depth, 
+                                                 const IndexType &span_left, 
+                                                 const IndexType &span_right) 
+{
   if (span_left >= span_right) return INVALID_INDEX;
 
   // early calculate bound
@@ -143,7 +145,7 @@ typename BVHTree<_>::IndexType BVHTree<_>::build(
   // @see span_left: The left index of the current span
   // @see span_right: The right index of the current span
   //
-  /* if ( */ UNIMPLEMENTED; /* ) */
+  if (span_left == span_right - 1 || depth > CUTOFF_DEPTH)
   {
     // create leaf node
     const auto &node = nodes[span_left];
@@ -166,12 +168,10 @@ typename BVHTree<_>::IndexType BVHTree<_>::build(
   IndexType count = span_right - span_left;
   IndexType split = INVALID_INDEX;
 
-  if (hprofile == EHeuristicProfile::EMedianHeuristic) {
+  if (hprofile == EHeuristicProfile::EMedianHeuristic) 
+  {
 use_median_heuristic:
     split = span_left + count / 2;
-    // Sort the nodes
-    // after which, all centroids in [span_left, split) are LT than right
-    // clang-format off
 
     // TODO(HW3): implement the median split here
     //
@@ -181,10 +181,20 @@ use_median_heuristic:
     //
     // You may find `std::nth_element` useful here.
 
-    UNIMPLEMENTED;
+    std::nth_element(nodes.begin() + span_left, 
+                     nodes.begin() + split, 
+                     nodes.begin() + span_right,
+                    [&](const auto &a, const auto &b)
+                    {
+                      return 
+                      a.getAABB().getCenter()[dim] < 
+                      b.getAABB().getCenter()[dim];
+                    });
 
     // clang-format on
-  } else if (hprofile == EHeuristicProfile::ESurfaceAreaHeuristic) {
+  } 
+  else if (hprofile == EHeuristicProfile::ESurfaceAreaHeuristic) 
+  {
 use_surface_area_heuristic:
     // See
     // https://www.pbr-book.org/3ed-2018/Primitives_and_Intersection_Acceleration/Bounding_Volume_Hierarchies
