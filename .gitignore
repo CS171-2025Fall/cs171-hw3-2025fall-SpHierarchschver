@@ -58,3 +58,6 @@ compile_commands.json
 *.old
 *.tar.gz
 data/sphere.obj
+
+# sh scripts
+test_cli.sh
