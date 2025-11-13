@@ -76,8 +76,11 @@ Float PerfectRefraction::pdf(SurfaceInteraction &) const {
   return 0;
 }
 
-Vec3f PerfectRefraction::sample(
-    SurfaceInteraction &interaction, Sampler &sampler, Float *pdf) const {
+Vec3f 
+PerfectRefraction::sample(SurfaceInteraction &interaction, Sampler &sampler, 
+                          Float *pdf) 
+const 
+{
   // The interface normal
   Vec3f normal = interaction.shading.n;
   // Cosine of the incident angle
@@ -104,7 +107,13 @@ Vec3f PerfectRefraction::sample(
   // @see Refract for refraction calculation.
   // @see Reflect for reflection calculation.
 
-  UNIMPLEMENTED;
+  Vec3f reflected_dir = Reflect(interaction.wo, normal);
+  Vec3f refracted_dir;
+
+  if (Refract(interaction.wo, normal, eta_corrected, refracted_dir))
+    interaction.wi = refracted_dir;
+  else
+    interaction.wi = reflected_dir;
 
   // Set the pdf and return value, we dont need to understand the value now
   if (pdf != nullptr) *pdf = 1.0F;
