@@ -193,8 +193,7 @@ const
 
     // You should assign the value to color
 
-    // Vec3f irrandiance = point_light_flux / (4 * PI * dist_to_light * dist_to_light);
-    Vec3f irrandiance = point_light_flux / (4 * PI);
+    Vec3f irrandiance = point_light_flux / (4 * PI * dist_to_light * dist_to_light);
     color = bsdf->evaluate(interaction) * irrandiance * cos_theta;
   }
 
