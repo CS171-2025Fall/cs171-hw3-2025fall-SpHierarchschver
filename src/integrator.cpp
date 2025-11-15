@@ -1,6 +1,7 @@
 #include "rdr/integrator.h"
 
 #include <omp.h>
+#include <iostream>
 
 #include "rdr/bsdf.h"
 #include "rdr/camera.h"
@@ -199,6 +200,157 @@ const
 
   return color;
 }
+
+/* ===================================================================== *
+ *
+ * Area Light Integrator's Implementation
+ *
+ * ===================================================================== */
+
+void
+AreaLightIntegrator::render (ref<Camera> camera, ref<Scene> scene)
+{
+  // Statistics
+  std::atomic<int> cnt = 0;
+
+  const Vec2i &resolution = camera->getFilm()->getResolution();
+#pragma omp parallel for schedule(dynamic)
+  for (int dx = 0; dx < resolution.x; dx++) 
+  {
+    ++cnt;
+    if (cnt % (resolution.x / 10) == 0)
+      Info_("Rendering: {:.02f}%", cnt * 100.0 / resolution.x);
+    Sampler sampler;
+    for (int dy = 0; dy < resolution.y; dy++) 
+    {
+      sampler.setPixelIndex2D(Vec2i(dx, dy));
+      for (int sample = 0; sample < spp; sample++) 
+      {        
+        const Vec2f &pixel_sample = sampler.getPixelSample();
+        auto ray = camera->generateDifferentialRay(pixel_sample.x, pixel_sample.y);
+        
+        // Accumulate radiance
+        assert(pixel_sample.x >= dx && pixel_sample.x <= dx + 1);
+        assert(pixel_sample.y >= dy && pixel_sample.y <= dy + 1);
+        const Vec3f &L = Li(scene, ray, sampler);
+        camera->getFilm()->commitSample(pixel_sample, L);
+      }
+    }
+  }
+}
+
+Vec3f
+AreaLightIntegrator::Li (ref<Scene> scene, DifferentialRay &ray, Sampler &sampler)
+const
+{
+  Vec3f color(0.0);
+
+  // Cast a ray until we hit a non-specular surface or miss
+  // Record whether we have found a diffuse surface
+  bool diffuse_found = false;
+  SurfaceInteraction interaction;
+
+  for (int i = 0; i < max_depth; ++i) 
+  {
+    interaction      = SurfaceInteraction();
+    bool intersected = scene->intersect(ray, interaction);
+
+    if (interaction.primitive->hasAreaLight())
+    {
+      Vec3f radiance = interaction.primitive->getAreaLight()->Le(interaction, interaction.wo);
+      color = radiance / Max(radiance.x, radiance.y, radiance.z);
+      return color;
+    }
+
+    // Perform RTTI to determine the type of the surface
+    bool is_ideal_diffuse =
+        dynamic_cast<const IdealDiffusion *>(interaction.bsdf) != nullptr;
+    bool is_perfect_refraction =
+        dynamic_cast<const PerfectRefraction *>(interaction.bsdf) != nullptr;
+
+    // Set the outgoing direction
+    interaction.wo = -ray.direction;
+
+    if (!intersected) break;
+
+    if (is_perfect_refraction) 
+    {
+      Float pdf = interaction.pdf;
+      const auto sample = interaction.bsdf->sample(interaction, sampler, &pdf);
+      ray = interaction.spawnRay(Normalize(interaction.wi));
+
+      continue;
+    }
+
+    if (is_ideal_diffuse) 
+    {
+      // We only consider diffuse surfaces for direct lighting
+      diffuse_found = true;
+      break;
+    }
+
+    // We simply omit any other types of surfaces
+    break;
+  }
+
+  if (!diffuse_found) return color;
+
+  color = directLighting(scene, interaction);
+  return color;
+};
+
+Vec3f
+AreaLightIntegrator::directLighting (ref<Scene> scene, 
+                                     SurfaceInteraction &interaction)
+const
+{
+  Vec3f color(0, 0, 0);
+  vector<ref<Light>> lights = scene->getLights();
+  Sampler sampler;
+
+  for (const auto &light : lights)
+  {
+    bool isAreaLight = dynamic_cast<const AreaLight *>(light.get()) != nullptr;
+
+    if (isAreaLight)
+    {
+      for (int i = 0; i < light_sample_cnt; ++i)
+      {
+        SurfaceInteraction light_si = light->sample(interaction, sampler);
+        Float dist_to_light = Norm(light_si.p - interaction.p);
+        Vec3f light_dir     = Normalize(light_si.p - interaction.p);
+        auto test_ray       = DifferentialRay(interaction.p, light_dir);
+
+        SurfaceInteraction shadow_interaction = SurfaceInteraction();
+        if (scene->intersect(test_ray, shadow_interaction))
+        {
+          Float hit_dist = Norm(shadow_interaction.p - interaction.p);
+          if (hit_dist < dist_to_light - 1e-4)
+            continue;
+        }
+
+        const BSDF *bsdf      = interaction.bsdf;
+        bool is_ideal_diffuse = dynamic_cast<const IdealDiffusion *>(bsdf) != nullptr;
+
+        if (bsdf != nullptr && is_ideal_diffuse) 
+        {
+          // The angle between light direction and surface normal
+          Float cos_theta_i =
+              std::max(Dot(light_dir, interaction.normal), 0.0f);  // one-sided
+          Float cos_theta_l = 
+              std::max(Dot(-light_dir, light_si.shading.n), 0.0f);
+
+          Vec3f irrandiance = light->Le(light_si, -light_dir) / (light_si.pdf);
+          color += bsdf->evaluate(interaction) * irrandiance *  cos_theta_i * cos_theta_l;
+        }
+      }
+
+      color /= light_sample_cnt;
+    }
+  }
+
+  return color;
+};
 
 /* ===================================================================== *
  *
