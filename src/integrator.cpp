@@ -354,23 +354,169 @@ const
 
 /* ===================================================================== *
  *
+ * Environment Mapping Integrator's Implementation
+ *
+ * ===================================================================== */
+
+void 
+EnvMapIntegrator::render (ref<Camera> camera, ref<Scene> scene) 
+{
+  // Statistics
+  std::atomic<int> cnt = 0;
+
+  const Vec2i &resolution = camera->getFilm()->getResolution();
+#pragma omp parallel for schedule(dynamic)
+  for (int dx = 0; dx < resolution.x; dx++) 
+  {
+    ++cnt;
+    if (cnt % (resolution.x / 10) == 0)
+      Info_("Rendering: {:.02f}%", cnt * 100.0 / resolution.x);
+    Sampler sampler;
+    for (int dy = 0; dy < resolution.y; dy++) 
+    {
+      sampler.setPixelIndex2D(Vec2i(dx, dy));
+      for (int sample = 0; sample < spp; sample++) 
+      {
+        const Vec2f &pixel_sample = sampler.getPixelSample();
+        auto ray = camera->generateDifferentialRay(pixel_sample.x, pixel_sample.y);
+        
+        // Accumulate radiance
+        assert(pixel_sample.x >= dx && pixel_sample.x <= dx + 1);
+        assert(pixel_sample.y >= dy && pixel_sample.y <= dy + 1);
+        const Vec3f &L = Li(scene, ray, sampler);
+        camera->getFilm()->commitSample(pixel_sample, L);
+      }
+    }
+  }
+}
+
+Vec3f 
+EnvMapIntegrator::Li(ref<Scene> scene, DifferentialRay &ray, 
+                               Sampler &sampler) 
+const 
+{
+  Vec3f color(0.0);
+  
+  bool diffuse_found = false;
+  SurfaceInteraction interaction;
+
+  for (int i = 0; i < max_depth; ++i) 
+  {
+    interaction      = SurfaceInteraction();
+    bool intersected = scene->intersect(ray, interaction);
+
+    if (!intersected) 
+    {
+      auto lights = scene->getLights();
+      for (const auto &light : lights) 
+      {
+        const InfiniteAreaLight *env = dynamic_cast<const InfiniteAreaLight *>(light.get());
+        if (env != nullptr) {
+          SurfaceInteraction dummy;
+          Vec3f radiance = env->Le(dummy, ray.direction);
+          return radiance;
+        }
+      }
+      break;
+    }
+
+    // Perform RTTI to determine the type of the surface
+    bool is_ideal_diffuse =
+        dynamic_cast<const IdealDiffusion *>(interaction.bsdf) != nullptr;
+    bool is_perfect_refraction =
+        dynamic_cast<const PerfectRefraction *>(interaction.bsdf) != nullptr;
+
+    // Set the outgoing direction
+    interaction.wo = -ray.direction;
+
+    if (!intersected) break;
+
+    if (is_perfect_refraction) 
+    {
+      Float pdf = interaction.pdf;
+      const auto sample = interaction.bsdf->sample(interaction, sampler, &pdf);
+      ray = interaction.spawnRay(Normalize(interaction.wi));
+
+      continue;
+    }
+
+    if (is_ideal_diffuse) 
+    {
+      // We only consider diffuse surfaces for direct lighting
+      diffuse_found = true;
+      break;
+    }
+
+    // We simply omit any other types of surfaces
+    break;
+  }
+
+  if (!diffuse_found) return color;
+
+  color = directLighting(scene, interaction);
+  return color;
+}
+
+Vec3f 
+EnvMapIntegrator::directLighting(ref<Scene> scene, 
+                                           SurfaceInteraction &interaction) 
+const 
+{
+  Vec3f color(0.0f);
+
+  const BSDF *bsdf = interaction.bsdf;
+  bool is_diffuse =
+      dynamic_cast<const IdealDiffusion *>(bsdf) != nullptr;
+  Sampler sampler;
+  auto lights = scene->getLights();
+  for (const auto &light : lights) 
+  {
+    const InfiniteAreaLight *env = dynamic_cast<const InfiniteAreaLight *>(light.get());
+    if (env != nullptr)
+    {
+      Float pdf_w = 0;
+      Vec3f wi = env->sampleDirection(interaction, sampler, pdf_w);
+      Float cos_theta = std::max(0.f, Dot(interaction.normal, wi));
+
+      auto shadow_ray = interaction.spawnRay(wi);
+      SurfaceInteraction shadow_interaction;
+      if (scene->intersect(shadow_ray, shadow_interaction))
+        continue;
+
+      SurfaceInteraction dummy;
+      Vec3f radiance = env->Le(dummy, wi);
+      color += bsdf->evaluate(interaction) * radiance * cos_theta / pdf_w;
+    }
+  }
+
+  return color;
+}
+
+/* ===================================================================== *
+ *
  * Path Integrator's Implementation
  *
  * ===================================================================== */
 
-void PathIntegrator::render(ref<Camera> camera, ref<Scene> scene) {
+void 
+PathIntegrator::render (ref<Camera> camera, ref<Scene> scene) 
+{
   // This is left as the next assignment
   UNIMPLEMENTED;
 }
 
-Vec3f PathIntegrator::Li(
-    ref<Scene> scene, DifferentialRay &ray, Sampler &sampler) const {
+Vec3f 
+PathIntegrator::Li(ref<Scene> scene, DifferentialRay &ray, Sampler &sampler) const 
+{
   // This is left as the next assignment
   UNIMPLEMENTED;
 }
 
-Vec3f PathIntegrator::directLighting(
-    ref<Scene> scene, SurfaceInteraction &interaction, Sampler &sampler) const {
+Vec3f 
+PathIntegrator::directLighting(ref<Scene> scene, SurfaceInteraction &interaction, 
+                               Sampler &sampler) 
+const 
+{
   // This is left as the next assignment
   UNIMPLEMENTED;
 }

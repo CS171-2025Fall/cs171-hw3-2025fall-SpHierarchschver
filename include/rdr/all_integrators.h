@@ -12,6 +12,8 @@ RDR_REGISTER_FACTORY(Integrator, [](const Properties &props) -> Integrator *
     return Memory::alloc<IntersectionTestIntegrator>(props);
   else if (type == "bdpt")
     return Memory::alloc<AreaLightIntegrator>(props);
+  else if (type == "env")
+    return Memory::alloc<EnvMapIntegrator>(props);
   else
     Exception_("Integrator type {} not found", type);
 

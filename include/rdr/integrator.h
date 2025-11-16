@@ -102,6 +102,35 @@ protected:
   int light_sample_cnt = 16;
 };
 
+class EnvMapIntegrator : public Integrator {
+public:
+  EnvMapIntegrator(const Properties &props) : Integrator(props) {
+
+    max_depth = props.getProperty<int>("max_depth", 16);
+    spp       = props.getProperty<int>("spp", 8);
+  }
+
+  void render(ref<Camera> camera, ref<Scene> scene) override;
+
+  /// @see Integrator::Li
+  Vec3f Li(  // NOLINT
+      ref<Scene> scene, DifferentialRay &ray, Sampler &sampler) const;
+
+  std::string toString() const override {
+    std::ostringstream ss;
+    ss << "EnvMapIntegrator[\n"
+       << format("  max_depth           = {}\n", max_depth)
+       << format("  spp                 = {}\n", spp) << "]";
+    return ss.str();
+  }
+
+  /// @brief Compute direct lighting at the interaction point
+  Vec3f directLighting(ref<Scene> scene, SurfaceInteraction &interaction) const;
+
+protected:
+  int max_depth, spp;
+};
+
 /// Retained for debuggingw
 class PathIntegrator : public Integrator {
 public:
