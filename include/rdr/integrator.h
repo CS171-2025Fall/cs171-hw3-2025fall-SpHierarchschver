@@ -129,6 +129,7 @@ public:
 
 protected:
   int max_depth, spp;
+  int light_sample_cnt = 1024;
 };
 
 /// Retained for debuggingw

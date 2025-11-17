@@ -392,7 +392,7 @@ EnvMapIntegrator::render (ref<Camera> camera, ref<Scene> scene)
 
 Vec3f 
 EnvMapIntegrator::Li(ref<Scene> scene, DifferentialRay &ray, 
-                               Sampler &sampler) 
+                     Sampler &sampler) 
 const 
 {
   Vec3f color(0.0);
@@ -405,21 +405,6 @@ const
     interaction      = SurfaceInteraction();
     bool intersected = scene->intersect(ray, interaction);
 
-    if (!intersected) 
-    {
-      auto lights = scene->getLights();
-      for (const auto &light : lights) 
-      {
-        const InfiniteAreaLight *env = dynamic_cast<const InfiniteAreaLight *>(light.get());
-        if (env != nullptr) {
-          SurfaceInteraction dummy;
-          Vec3f radiance = env->Le(dummy, ray.direction);
-          return radiance;
-        }
-      }
-      break;
-    }
-
     // Perform RTTI to determine the type of the surface
     bool is_ideal_diffuse =
         dynamic_cast<const IdealDiffusion *>(interaction.bsdf) != nullptr;
@@ -429,7 +414,14 @@ const
     // Set the outgoing direction
     interaction.wo = -ray.direction;
 
-    if (!intersected) break;
+    // if (!intersected) break;
+    if (!intersected)
+    {
+      auto light = scene->getInfiniteLight(); 
+      SurfaceInteraction dummy; 
+      Vec3f radiance = light->Le(dummy, ray.direction); 
+      return radiance;
+    }
 
     if (is_perfect_refraction) 
     {
@@ -459,7 +451,7 @@ const
 
 Vec3f 
 EnvMapIntegrator::directLighting(ref<Scene> scene, 
-                                           SurfaceInteraction &interaction) 
+                                 SurfaceInteraction &interaction) 
 const 
 {
   Vec3f color(0.0f);
@@ -474,18 +466,23 @@ const
     const InfiniteAreaLight *env = dynamic_cast<const InfiniteAreaLight *>(light.get());
     if (env != nullptr)
     {
-      Float pdf_w = 0;
-      Vec3f wi = env->sampleDirection(interaction, sampler, pdf_w);
-      Float cos_theta = std::max(0.f, Dot(interaction.normal, wi));
+      for (int i = 0; i < light_sample_cnt; ++i)
+      {
+        Float pdf = 0;
+        Vec3f light_dir = env->sampleDirection(interaction, sampler, pdf);
 
-      auto shadow_ray = interaction.spawnRay(wi);
-      SurfaceInteraction shadow_interaction;
-      if (scene->intersect(shadow_ray, shadow_interaction))
-        continue;
+        auto shadow_ray = interaction.spawnRay(light_dir);
+        SurfaceInteraction shadow_interaction;
+        if (scene->intersect(shadow_ray, shadow_interaction))
+          continue;
 
-      SurfaceInteraction dummy;
-      Vec3f radiance = env->Le(dummy, wi);
-      color += bsdf->evaluate(interaction) * radiance * cos_theta / pdf_w;
+        SurfaceInteraction dummy;
+        Float cos_theta = std::max(0.0f, Dot(interaction.normal, light_dir));
+        Vec3f radiance = env->Le(dummy, light_dir);
+        color += bsdf->evaluate(interaction) * radiance * cos_theta / pdf;
+      }
+
+      color /= light_sample_cnt;
     }
   }
 
