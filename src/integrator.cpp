@@ -420,7 +420,7 @@ const
       auto light = scene->getInfiniteLight(); 
       SurfaceInteraction dummy; 
       Vec3f radiance = light->Le(dummy, ray.direction); 
-      return radiance;
+      return radiance / Max(radiance.x, radiance.y, radiance.z);
     }
 
     if (is_perfect_refraction) 

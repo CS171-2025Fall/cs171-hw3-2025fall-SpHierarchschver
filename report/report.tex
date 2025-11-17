@@ -23,20 +23,99 @@
 \lstset{basicstyle=\ttfamily}
 
 % Title portion
-\title{Assignment 1:\\ {Exploring OpenGL Programming}} 
+\title{Assignment 3:\\ {EBasic Ray Tracing}} 
 
-\author{Name: \quad \\ student number:\
-\\email: \quad \texttt{}}
+\author{Name: Lu yuanji \\ student number: 2023533014
+\\email: \texttt{luyj2023@shanghaitech.edu.cn}}
 
 % Document starts
 \begin{document}
 \maketitle
 
-\vspace*{2 ex}
-
 \section{Introduction}
+In this project, we focus on the implementation of a basic ray-tracing renderer, including ray-triangle intersection, BVH tree construction and traversal, direct illumination. Also, support of rectangle area light with soft shadow and environment light via environment mapping are available.
+
 \section{Implementation Details}
+\subsection{Code Compilation}
+The developing environment of this project is vscode with its plugins. The code is compiled by cmake.
+
+\subsection{Ray-triangle Intersection}
+Ray-triangle intersection is implemented in \texttt{TriangleIntersect} in \texttt{accel.cpp}. To get \texttt{t, u, v}, we leverage the solution of the following linear equation:
+\begin{align*}
+  (1 - u - v)p_0 + up_1 + vp_2 = \mathbf{o} + t\mathbf{d}
+\end{align*}
+where $(1-u-v, u, v)$ is the barycentric coodinate, $\mathbf{o} + t\mathbf{d}$ is the ray. The ray intersects with the triangle if and only if:
+\begin{align*}
+  u \ge 0, v \ge 0, u+v \le 1, t_{\text{min}} \le t \le t_{\text{max}}
+\end{align*}
+
+\subsection{Ray-AABB Intersection}
+Ray-AABB Intersection is implemented in \texttt{AABB::intersect} in \texttt{accel.cpp}. The ray intersects with the AABB if and only if $t_{\text{in}} \le t_{\text{out}}$, and $t_{\text{in}}$ is derived by the max component value of $t_{\text{min}}$, $t_{\text{out}}$ is derived by the min component value of $t_{\text{max}}$. And $t_{\text{min}}$, $t_{\text{min}}$ are derived by $\frac{b_{\text{low}} - \mathbf{o}}{\mathbf{d}}$ and $\frac{b_{\text{upper}} - \mathbf{o}}{\mathbf{d}}$ respectively.
+
+\subsection{BVH Construction}
+The main implementation of construction of BVH is in \texttt{bvh\_tree.h}. The alogrithm is a divide-and-conquer one, and we do two major modifications.
+
+\subsubsection{Stop Criteria}
+If \texttt{span\_left} crossed over \texttt{span\_right}, or the tree exceeds the max depth, we stop dividing the scene; else, we continue splitting.
+
+\subsubsection{Median Split}
+When splitting, we find the median node according to the center of AABB of each node, and make those nodes that are less than median stay in the left side, and those larger than median stay in the right side of the nodes list. Then we recursively do the construction and split at the median.
+
+\subsection{Direct Illumination Integrator}
+This section is implemented mainly in \texttt{integrator.cpp}. In this integrator, we do not take multi-reflection into account and only calculate the relationship between the intersection and light source directly. The next part will introduce the three different kinds of integrator implemented in this project, which serve for different purposes.
+
+\subsubsection{Point Light Integrator}
+To render image, we traverse the all pixels, and each pixel is sampled \texttt{spp} number of rays to determine the final color of this specific pixel. Multiple rays are sampled to reduce aliasing problem. For each ray specifically, we calculate the \texttt{Li}, which is the radiance the pixel, and then commit it to the main thread since we do this in a parallel pattern.
+
+To calculate \texttt{Li}, we traverse the tree to see if the sampled ray intersects with any triangle. If does, then we first judge the material(BSDF) of the surface: if ideal diffuse, we calculate its color by \texttt{directLighting} straightforwardly, and if perfect refraction, since its trasparent, we cannot determine its color here and should sample another ray by its BSDF to continue this process; if doesn't, then we just break this traverse since it must not intersect with any other triangle.
+
+To calculate \texttt{directLighting}, we first perform occlusion test, which sample a test ray from the intersection point to the point light source to see if there exists occlusion along this ray: if does, then return a black color; if not, then we get its color by render equation:
+\begin{align*}
+  L_i &= \int_{A} f_r \cdot L_o |\cos\theta_i| \text{d} \omega_o \\
+\end{align*}
+where
+$f_r$ is evaulated by \texttt{bsdf->evaluate(interaction)}, $L_o$ is evaluated by \texttt{point\_light\_flux / (4 * PI * dist\_to\_light * dist\_to\_light)}, $\cos\theta_i$ is evaluated by \texttt{std::max(Dot(light\_dir, interaction.normal), 0.0f)}
+
+\subsubsection{Area Light Integrator}
+For render logic, there is no difference on implementation.
+
+For \texttt{Li} part, a judgement of \texttt{hasAreaLight} is performed before evaluation of color. This is necessary because it handles the occasion of the rendering of light itself.
+
+For \texttt{directLighting} part, we sample \texttt{light\_sample\_cnt} number of points in area light as point light, and iteratively do the same thing as the point light color calculation.
+
+\subsubsection{Environment Light Integrator}
+For render logic, there is no difference on implementation.
+
+For \texttt{Li} part, there's a litte difference when the sampled ray does not intersect with any triangles--we return the color of envrionment light color, which is intuitive.
+
+For \texttt{directLighting} part, there's a little difference in environment light radiance calculation, since it has nothing to do with interaction itself, unlike previous integrators.
+
 \section{Results}
+Thanks to different integrators, we get four images that renders under different settings:
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.42\textwidth]{figs/cbox_no_light.png}
+  \caption{Boxes with no refractive material rendering under a single point light} \label{fig1}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.42\textwidth]{figs/cbox_no_light_refract.png}
+  \caption{Boxes with refractive material rendering under a single point light} \label{fig2}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.42\textwidth]{figs/cbox.png}
+  \caption{Boxes rendering under a rectangle area light} \label{fig3}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.42\textwidth]{figs/sphere_direct.png}
+  \caption{Sphere rendering under a white environment light} \label{fig4}
+\end{figure}
 
 \end{document}
 

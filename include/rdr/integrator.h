@@ -99,7 +99,7 @@ public:
 
 protected:
   int max_depth, spp;
-  int light_sample_cnt = 16;
+  int light_sample_cnt = 128;
 };
 
 class EnvMapIntegrator : public Integrator {
